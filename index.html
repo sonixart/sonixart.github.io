@@ -1,0 +1,87 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Arbitrage Monitor – Binance ↔ Bybit (Dynamic Pairs)</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #111; color: #eee; padding: 20px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  th, td { border: 1px solid #444; padding: 8px; text-align: center; }
+  th { background: #222; }
+  tr.profit { background: #1b3d1b; }
+  tr.loss { background: #3d1b1b; }
+  .small { font-size: 0.9em; color: #999; }
+</style>
+</head>
+<body>
+  <h1>📊 Arbitrage Monitor – Binance ↔ Bybit (Dynamic)</h1>
+  <p class="small">Обновляется каждые 30 сек • Комиссия: 0.2% • Порог: > 1.1%</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Монета</th>
+        <th>Binance</th>
+        <th>Bybit</th>
+        <th>Спред (%)</th>
+        <th>Чистая прибыль $100</th>
+      </tr>
+    </thead>
+    <tbody id="tbl"></tbody>
+  </table>
+
+<script>
+async function getBinanceSymbols(){
+  const resp = await fetch('https://api.binance.com/api/v3/exchangeInfo');
+  const info = await resp.json();
+  return info.symbols.filter(s=>s.quoteAsset==='USDT'&&s.status==='TRADING').map(s=>s.symbol);
+}
+
+async function getBybitSymbols(){
+  const resp = await fetch('https://api.bybit.com/spot/v1/symbols');
+  const data = await resp.json();
+  return data.result.list.filter(s=>s.status==='Trading'&& s.quoteCurrency==='USDT').map(s=> (s.baseCurrency+s.quoteCurrency));
+}
+
+async function fetchPrice(sym, source){
+  try{
+    const url = source==='binance'
+      ? `https://api.binance.com/api/v3/ticker/price?symbol=${sym}`
+      : `https://api.bybit.com/v2/public/tickers?symbol=${sym}`;
+    const r = await fetch(url);
+    const j = await r.json();
+    return source==='binance' ? parseFloat(j.price) : parseFloat(j.result[0].last_price);
+  } catch{return null;}
+}
+
+async function update(){
+  const bin = await getBinanceSymbols();
+  const byt = await getBybitSymbols();
+  const common = bin.filter(s=>byt.includes(s));
+  const tbl = document.getElementById('tbl');
+  tbl.innerHTML = '';
+  for(const sym of common){
+    const b=await fetchPrice(sym,'binance'),
+          y=await fetchPrice(sym,'bybit');
+    const spread = b&&y? ((y-b)/b*100):null;
+    const net = spread!=null? spread-0.2:null;
+    const prof = net!=null? ((y-b)*(100/b)-0.2):null;
+    const row = document.createElement('tr');
+    if(net!=null){
+      if(net>1.1) row.className='profit';
+      else if(net<0) row.className='loss';
+    }
+    row.innerHTML = `<td>${sym.replace('USDT','')}</td>
+      <td>${b!=null?b.toFixed(4):'–'}</td>
+      <td>${y!=null?y.toFixed(4):'–'}</td>
+      <td>${net!=null?net.toFixed(2):'–'}</td>
+      <td>${prof!=null?('$'+prof.toFixed(2)):'–'}</td>`;
+    tbl.appendChild(row);
+  }
+}
+
+update();
+setInterval(update,30000);
+</script>
+</body>
+</html>
